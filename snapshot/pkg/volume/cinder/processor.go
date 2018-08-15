@@ -18,6 +18,7 @@ package cinder
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -78,11 +79,25 @@ func (c *cinderPlugin) SnapshotCreate(
 	if spec == nil || spec.Cinder == nil {
 		return nil, nil, fmt.Errorf("invalid PV spec %v", spec)
 	}
-	volumeID := spec.Cinder.VolumeID
-	snapshotName := string(pv.Name) + fmt.Sprintf("%d", time.Now().UnixNano())
-	snapshotDescription := "kubernetes snapshot"
-	glog.Infof("issuing Cinder.CreateSnapshot - SourceVol: %s, Name: %s, tags: %#v", volumeID, snapshotName, *tags)
-	snapID, status, err := c.cloud.CreateSnapshot(volumeID, snapshotName, snapshotDescription, *tags)
+
+	//Parse Openstack Specific Tags
+	var opts openstack.SnapshotCreateOpts
+	opts.VolumeID = spec.Cinder.VolumeID
+	opts.Name = string(pv.Name) + fmt.Sprintf("%d", time.Now().UnixNano())
+	opts.Description = "kubernetes snapshot"
+
+	//TODO: CLEAN - Make openstack specific
+	if forceValue, ok := snapshot.Metadata.Annotations["snapshot.alpha.kubernetes.io/force"]; ok {
+		force, err := strconv.ParseBool(forceValue)
+		if err != nil {
+			glog.V(2).Infof("Expected boolean for annotation snapshot.alpha.kubernetes.io/force: %s", forceValue)
+		} else {
+			opts.Force = force
+		}
+	}
+
+	glog.Infof("issuing Cinder.CreateSnapshot - SourceVol: %s, Name: %s, tags: %#v", opts.VolumeID, opts.Name, *tags)
+	snapID, status, err := c.cloud.CreateSnapshot(opts, *tags)
 	if err != nil {
 		return nil, nil, err
 	}
